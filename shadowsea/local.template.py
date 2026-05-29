@@ -5,7 +5,9 @@ SECRET_KEY = ''
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['yourdomain.com']
+
+CSRF_TRUSTED_ORIGINS = ['https://yourdomain.com']
 
 DATABASES = {
     'default': {

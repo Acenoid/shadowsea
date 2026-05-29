@@ -11,5 +11,6 @@ urlpatterns = [
     path('thread/<int:id>/', forum.views.ThreadView.as_view()),
     path('thread/<int:id>/post/', forum.views.CreatePostView.as_view()),
     path('auth/login/', forum.views.LoginView.as_view()),
-    path('auth/register/', forum.views.RegisterView.as_view())
+    path('auth/register/', forum.views.RegisterView.as_view()),
+    path('auth/invite-required/', forum.views.InviteRequiredView.as_view())
 ]

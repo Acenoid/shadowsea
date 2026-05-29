@@ -6,7 +6,7 @@
     <title>ShadowSea</title>
 
 
-    <link rel='stylesheet prefetch' href='https://rawgit.com/jcubic/jquery.terminal/devel/css/jquery.terminal-src.css?v=3'>
+    <link rel='stylesheet prefetch' href='https://cdn.jsdelivr.net/npm/jquery.terminal@2/css/jquery.terminal.min.css'>
 
     <style>
         body {
@@ -204,10 +204,35 @@
     </div>
 
     <script src='https://code.jquery.com/jquery-3.1.1.min.js'></script>
-    <script src='https://rawgit.com/jcubic/jquery.terminal/master/js/jquery.terminal.js'></script>
-    <script src='https://rawgit.com/jcubic/jquery.terminal/master/js/jquery.mousewheel-min.js'></script>
-    <script src='https://rawgit.com/inexorabletash/polyfill/master/keyboard.js'></script>
+    <script src='https://cdn.jsdelivr.net/npm/jquery.terminal@2/js/jquery.terminal.min.js'></script>
+    <script src='https://cdn.jsdelivr.net/npm/jquery-mousewheel/jquery.mousewheel.min.js'></script>
+    <script src='https://cdn.jsdelivr.net/gh/inexorabletash/polyfill/keyboard.js'></script>
     <script src='https://unpkg.com/treeify@1.0.1/treeify.js'></script>
+
+<script>
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    $.ajaxSetup({
+        beforeSend: function(xhr, settings) {
+            if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type)) {
+                xhr.setRequestHeader("X-CSRFToken", getCookie('csrftoken'));
+            }
+        }
+    });
+</script>
 
     <script>
 
@@ -216,7 +241,7 @@
   \\__ \\/ __ \\/ __ \`/ __  / __ \\ | /| / /\\__ \\/ _ \\/ __ \`/
  ___/ / / / / /_/ / /_/ / /_/ / |/ |/ /___/ /  __/ /_/ /
 /____/_/ /_/\\__,_/\\__,_/\\____/|__/|__//____/\\___/\\__,_/
-Copyright (c) 2071-2072
+Copyright (c) 2050-2055
 `
 
         var scanlines = $('.scanlines');
@@ -224,10 +249,20 @@ Copyright (c) 2071-2072
 
         thread_id = null;
         login_creds = null;
+        thread_list_cache = [];
 
         function login(user, pass, callback) {
             term.push(function (user) {
+                if (!user.trim()) {
+                    term.error('username cannot be empty');
+                    return;
+                }
                 term.set_mask('*').push(function (pass) {
+                    if (!pass) {
+                        term.error('password cannot be empty');
+                        term.pop(undefined, true);
+                        return;
+                    }
                     login_cred = user + '$' + pass;
 
                     $.post('/auth/login/', { token: login_cred }).then(function (response) {
@@ -251,32 +286,64 @@ Copyright (c) 2071-2072
         }
 
         function register() {
-            term.push(function (user) {
-                term.set_mask('*').push(function (pass) {
-                    login_cred = user + '$' + pass;
+            term.pause();
+            $.get('/auth/invite-required/')
+                .always(function(response) {
+                    term.resume();
+                    var inviteRequired = response && response.required;
 
-                    term.pause();
+                    function doRegister(invite_code) {
+                        term.push(function (user) {
+                            if (!user.trim()) {
+                                term.error('username cannot be empty');
+                                return;
+                            }
+                            term.set_mask('*').push(function (pass) {
+                                if (!pass) {
+                                    term.error('password cannot be empty');
+                                    term.pop(undefined, true);
+                                    return;
+                                }
+                                var login_cred = user + '$' + pass;
+                                var payload = { token: login_cred };
+                                if (inviteRequired) payload.invite_code = invite_code;
 
-                    $.post('/auth/register/', { token: login_cred })
-                        .then(function (response) {
-                            term.echo('user created')
-                        })
-                        .fail(function(response) {
-                            term.error(response.responseJSON.error || 'an error occurred')
-                        })
-                        .always(function (response) {
-                            term.resume()
-                            term.pop(undefined, true).pop(undefined, true);
-                        })
+                                term.pause();
 
-                }, {
-                    prompt: 'password: ',
-                    name: 'password'
+                                $.post('/auth/register/', payload)
+                                    .then(function (response) {
+                                        term.echo('user created')
+                                    })
+                                    .fail(function(response) {
+                                        term.error(response.responseJSON.error || 'an error occurred')
+                                    })
+                                    .always(function () {
+                                        term.resume();
+                                        term.pop(undefined, true).pop(undefined, true);
+                                    })
+
+                            }, {
+                                prompt: 'password: ',
+                                name: 'password'
+                            });
+                        }, {
+                            prompt: 'username: ',
+                            name: 'username'
+                        });
+                    }
+
+                    if (inviteRequired) {
+                        term.push(function (code) {
+                            term.pop(undefined, true);
+                            doRegister(code);
+                        }, {
+                            prompt: 'invite code: ',
+                            name: 'invite_code'
+                        });
+                    } else {
+                        doRegister('');
+                    }
                 });
-            }, {
-                prompt: 'username: ',
-                name: 'username'
-            });
         }
 
         function status() {
@@ -289,31 +356,45 @@ Copyright (c) 2071-2072
         function post_thread() {
             term.echo('posting new thread...')
 
-            term.push(function (title) {
-                term.push(function (content) {
-                    term.pause()
+            term.push(function (vis) {
+                var v = vis.trim().toLowerCase();
+                if (v !== 'p' && v !== 'r' && v !== '') {
+                    term.error('please enter P (public) or R (registered only)');
+                    return;
+                }
+                var restricted = (v === 'r');
+                term.pop(undefined, true);
 
-                    $.post('/thread/post/', {
-                        title: title,
-                        content: content
-                    })
-                    .done(function(response) {
-                        term.echo('created thread ' + response.thread_id)
-                    })
-                    .fail(function(response) {
-                        term.error('an error occurred')
-                    })
-                    .always(function(response) {
-                        term.resume()
-                        term.pop(undefined, true).pop(undefined, true);
-                    })
+                term.push(function (title) {
+                    term.push(function (content) {
+                        term.pause()
+
+                        $.post('/thread/post/', {
+                            title: title,
+                            content: content,
+                            restricted: restricted ? 'true' : 'false'
+                        })
+                        .done(function(response) {
+                            term.echo('created thread ' + response.thread_id + (restricted ? ' [registered only]' : ' [public]'))
+                        })
+                        .fail(function(response) {
+                            term.error('an error occurred')
+                        })
+                        .always(function(response) {
+                            term.resume()
+                            term.pop(undefined, true).pop(undefined, true);
+                        })
+                    }, {
+                        prompt: 'content: ',
+                        name: 'content'
+                    });
                 }, {
-                    prompt: 'content: ',
-                    name: 'content'
+                    prompt: 'title: ',
+                    name: 'title'
                 });
             }, {
-                prompt: 'title: ',
-                name: 'title'
+                prompt: 'visibility (P=public / r=registered only): ',
+                name: 'visibility'
             });
         }
 
@@ -347,15 +428,22 @@ Copyright (c) 2071-2072
             $.get('/thread/list/', {})
                 .done(function (response) {
                     term.echo("[[;#fff;]  id u                author title                                   posts                date]")
+                    thread_list_cache = response;
                     for (r in response) {
-                        term.echo(
-                            response[r].id.toString().padStart(4, ' ') +
-                            (response[r].unread ? ' *' : '  ') +
-                            response[r].poster.toString().padStart(22, ' ') + ' ' +
-                            response[r].name.substring(0, 38).toString().padEnd(39, ' ') +
-                            response[r].posts.toString().padStart(6, ' ') +
-                            response[r].date.toString().padStart(20, ' ')
-                        );
+                        var t = response[r];
+                        var line =
+                            t.id.toString().padStart(4, ' ') +
+                            (t.unread ? ' *' : '  ') +
+                            t.poster.toString().padStart(22, ' ') + ' ' +
+                            t.name.substring(0, 38).toString().padEnd(39, ' ') +
+                            t.posts.toString().padStart(6, ' ') +
+                            t.date.toString().padStart(20, ' ');
+
+                        if (t.restricted) {
+                            term.echo('[[;#555;]' + line + ']');
+                        } else {
+                            term.echo(line);
+                        }
                     }
                 })
                 .always(function (response) {
@@ -367,16 +455,25 @@ Copyright (c) 2071-2072
             term.pause();
             $.get('/thread/' + thread_id + '/', {})
                 .done(function (response) {
-                    for (r in response) {
-                        term.echo('[[;#fff;]' + response[r].poster.toString().padEnd(24, ' ') + ' ' + response[r].date.toString()) + ']';
-                        term.echo(response[r].text + '\n');
+                    try {
+                        for (r in response) {
+                            term.echo('[[;#fff;]' + response[r].poster.toString().padEnd(24, ' ') + ' ' + response[r].date.toString()) + ']';
+                            term.echo(response[r].text + '\n');
+                        }
+                    } catch(e) {
+                        term.error('an error occurred');
+                    }
+                })
+                .fail(function(xhr) {
+                    if (xhr.status === 403) {
+                        term.error('access denied: this thread is for registered users only');
+                        thread_id = null;
+                    } else {
+                        term.error('an error occurred');
                     }
                 })
                 .always(function (response) {
                     term.resume();
-                })
-                .fail(function(response) {
-                    term.error('an error occurred')
                 })
         }
 
@@ -391,6 +488,18 @@ Copyright (c) 2071-2072
 
             if (c.name == '') {
                 term.echo('')
+            }
+            else if (c.name == 'help' || c.name == '?') {
+                term.echo('[[;#fff;]Available commands:]');
+                term.echo('  list / ls          — list threads (or posts inside a thread)');
+                term.echo('  thread <id> / cd <id> — open a thread by ID');
+                term.echo('  cd ..              — go back to thread list');
+                term.echo('  back               — go back to thread list');
+                term.echo('  post               — create a new thread (or reply inside a thread)');
+                term.echo('  login              — log in to your account');
+                term.echo('  register           — create a new account');
+                term.echo('  status             — show current login status');
+                term.echo('  help / ?           — show this help');
             }
             else if (c.name == 'list' || c.name == 'ls') {
                 if (thread_id == null) {
@@ -429,7 +538,28 @@ Copyright (c) 2071-2072
                     return;
                 }
 
-                thread_id = c.args[0];
+                if (c.args[0] === '..') {
+                    if (thread_id === null) {
+                        term.error("you are already at the root");
+                    } else {
+                        thread_id = null;
+                    }
+                    return;
+                }
+
+                var id = parseInt(c.args[0], 10);
+                if (isNaN(id) || id <= 0 || id.toString() !== c.args[0].toString()) {
+                    term.error('thread ID must be a positive integer');
+                    return;
+                }
+
+                var cached = thread_list_cache.find(function(t) { return t.id === id; });
+                if (cached && cached.restricted) {
+                    term.error('access denied: this thread is for registered users only');
+                    return;
+                }
+
+                thread_id = id;
                 term.echo('selected thread ' + thread_id);
             }
             else {

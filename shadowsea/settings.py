@@ -34,6 +34,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
 ]
 
 ROOT_URLCONF = 'shadowsea.urls'
@@ -67,3 +68,21 @@ USE_L10N = False
 USE_TZ = False
 
 STATIC_URL = '/static/'
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
+
+# ?: (security.W019) You have 'django.middleware.clickjacking.XFrameOptionsMiddleware' in your MIDDLEWARE, 
+# but X_FRAME_OPTIONS is not set to 'DENY'. The default is 'SAMEORIGIN', 
+# but unless there is a good reason for your site to serve other parts of itself in a frame, you should change it to 'DENY'.
+X_FRAME_OPTIONS = 'DENY'
+
+
+# Django Security MiddleWare:
+#SECURE_CONTENT_TYPE_NOSNIFF = True
+#SECURE_BROWSER_XSS_FILTER = True
+#SESSION_COOKIE_SECURE = True
+#CSRF_COOKIE_SECURE = True
+
+
+# Warnings from installation django 4.2
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'

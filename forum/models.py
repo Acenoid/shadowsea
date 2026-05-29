@@ -10,6 +10,7 @@ class Thread(models.Model):
     id = models.AutoField(primary_key=True)
     poster = models.ForeignKey(User, models.CASCADE)
     name = models.CharField(max_length=256)
+    restricted = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
@@ -35,3 +36,25 @@ class ThreadRead(models.Model):
     thread = models.ForeignKey(Thread, models.CASCADE, db_index=True)
     user = models.ForeignKey(User, models.CASCADE, db_index=True)
     date = models.DateTimeField(auto_now=True)
+
+
+class SiteSettings(models.Model):
+    invite_code = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        help_text='If set, new users must enter this code to register. Leave empty to allow registration without a code.'
+    )
+
+    class Meta:
+        verbose_name = 'Site Settings'
+        verbose_name_plural = 'Site Settings'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

@@ -1,6 +1,8 @@
 import random
 import datetime
 
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
 from django.shortcuts import render
 from django.views import View
 from django.http import JsonResponse
@@ -11,13 +13,20 @@ from django.db.models import Min, Max, Value, BooleanField, Case, When, F, Outer
 from django.db.models.functions import Coalesce
 
 
-from forum.models import Thread, Post, ThreadRead
+from forum.models import Thread, Post, ThreadRead, SiteSettings
 
+# replaced with csfr conform 
+#class ForumView(View):
+#    def get(self, request):
+#        request.session.flush()
+#        return render(request, 'forum/terminal.html')
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class ForumView(View):
     def get(self, request):
         request.session.flush()
         return render(request, 'forum/terminal.html')
+
 
 
 class ThreadListView(View):
@@ -59,16 +68,23 @@ class ThreadListView(View):
                 )
             )
 
+        def scramble(text):
+            chars = '█▓▒░▄▀■□▪▫'
+            return ''.join(chars[ord(c) % len(chars)] for c in text)
+
+        is_auth = request.user.is_authenticated
+
         return JsonResponse([
             {
                 'id': t.id,
-                'poster': t.poster.username,
-                'name': t.name,
+                'poster': t.poster.username if (is_auth or not t.restricted) else scramble(t.poster.username),
+                'name': t.name if (is_auth or not t.restricted) else scramble(t.name),
                 'posts': t.post_set.count(),
                 'unread': t.last_read < t.latest_real,
                 'date': t.earliest_fake,
                 'latest': t.latest_fake,
                 'last_read': t.last_read,
+                'restricted': t.restricted and not is_auth,
             }
             for t in qs
         ], safe=False)
@@ -76,6 +92,14 @@ class ThreadListView(View):
 
 class ThreadView(View):
     def get(self, request, id):
+        try:
+            thread = Thread.objects.get(pk=id)
+        except Thread.DoesNotExist:
+            return JsonResponse({'error': 'not found'}, status=404)
+
+        if thread.restricted and not request.user.is_authenticated:
+            return JsonResponse({'error': 'restricted'}, status=403)
+
         if request.user.is_authenticated:
             ThreadRead.objects.update_or_create(thread_id=id, user=request.user)
 
@@ -116,9 +140,27 @@ class LoginView(View):
             })
 
 
+class InviteRequiredView(View):
+    def get(self, request):
+        settings = SiteSettings.get()
+        return JsonResponse({'required': bool(settings.invite_code)})
+
+
 class RegisterView(View):
     def post(self, request):
+        settings = SiteSettings.get()
+        if settings.invite_code:
+            provided = request.POST.get('invite_code', '')
+            if provided != settings.invite_code:
+                return JsonResponse({'error': 'invalid invite code'}, status=403)
+
         username, password = request.POST['token'].split('$', maxsplit=1)
+
+        if not username:
+            return JsonResponse({'error': 'username cannot be empty'}, status=400)
+
+        if not password:
+            return JsonResponse({'error': 'password cannot be empty'}, status=400)
 
         if User.objects.filter(username=username).exists():
             return JsonResponse({
@@ -137,7 +179,8 @@ class CreateThreadView(LoginRequiredMixin, View):
     raise_exception = True
 
     def post(self, request):
-        thread = Thread.objects.create(poster=request.user, name=request.POST['title'])
+        restricted = request.POST.get('restricted', 'false') == 'true'
+        thread = Thread.objects.create(poster=request.user, name=request.POST['title'], restricted=restricted)
         Post.objects.create(thread=thread, poster=request.user, content=request.POST['content'])
 
         ThreadRead.objects.update_or_create(thread_id=thread.id, user=request.user)
